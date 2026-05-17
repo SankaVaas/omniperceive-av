@@ -1,0 +1,39 @@
+# Core
+torch>=2.2.0
+torchvision>=0.17.0
+numpy>=1.24.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# Config & Logging
+pyyaml>=6.0
+tensorboard>=2.14.0
+wandb>=0.16.0
+tqdm>=4.66.0
+rich>=13.0.0
+
+# nuScenes SDK
+nuscenes-devkit>=1.1.10
+
+# ONNX export & inference
+onnx>=1.15.0
+onnxruntime-gpu>=1.17.0
+
+# Metrics & Eval
+scikit-learn>=1.3.0
+scipy>=1.11.0
+pycocotools>=2.0.7
+
+# Visualisation
+matplotlib>=3.8.0
+seaborn>=0.13.0
+open3d>=0.18.0          # 3D point-cloud visualisation
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Dev tools
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
