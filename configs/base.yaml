@@ -1,0 +1,104 @@
+# ============================================================
+# OmniPerceive — Base Configuration
+# ============================================================
+# Override fields in task-specific configs (kitti / nuscenes).
+# All dimensions assume KITTI default (H=384, W=1280).
+
+model:
+  name: OmniPerceive
+
+  backbone:
+    type: SwinTransformer          # or DLA34
+    pretrained: weights/swin_tiny_patch4_window7_224.pth
+    embed_dim: 96
+    depths: [2, 2, 6, 2]          # Swin-T stage depths
+    num_heads: [3, 6, 12, 24]
+    window_size: 7
+    out_indices: [1, 2, 3]        # output stages for FPN
+    frozen_stages: 1              # freeze patch embed + stage 0 during warmup
+
+  neck:
+    type: FPN
+    in_channels: [192, 384, 768]  # matches Swin-T stages 1–3
+    out_channels: 256
+    num_outs: 4
+    start_level: 0
+
+  bev_neck:
+    type: BEVNeck
+    in_channels: 256
+    bev_h: 128                    # BEV grid height (meters/resolution)
+    bev_w: 128                    # BEV grid width
+    pc_range: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+
+  heads:
+    detection:
+      num_classes: 10             # KITTI: Car, Ped, Cyclist, …
+      hidden_channels: 64
+      score_thresh: 0.30
+      nms_radius: 3
+      max_detections: 500
+
+    lane:
+      num_lanes: 6                # max lanes per image
+      poly_degree: 3              # cubic polynomial coefficients
+      hidden_channels: 64
+      anchor_stride: 8
+
+    depth:
+      encoder_channels: [256, 128, 64, 32]
+      decoder_channels: [128, 64, 32, 16]
+      min_depth: 0.1
+      max_depth: 100.0
+
+    segmentation:
+      num_classes: 1              # binary: drivable / not drivable
+      hidden_channels: 128
+      use_aspp: true              # Atrous Spatial Pyramid Pooling
+
+training:
+  epochs: 100
+  batch_size: 4
+  num_workers: 8
+  pin_memory: true
+  gradient_clip: 35.0
+
+  optimizer:
+    type: AdamW
+    lr: 2.0e-4
+    weight_decay: 1.0e-2
+    betas: [0.9, 0.999]
+
+  scheduler:
+    type: OneCycleLR
+    max_lr: 2.0e-4
+    pct_start: 0.05              # 5% warmup
+    div_factor: 25
+    final_div_factor: 1.0e4
+
+  augmentation:
+    random_flip: 0.5
+    color_jitter:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.2
+      hue: 0.05
+    random_crop: [352, 1216]
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std:  [0.229, 0.224, 0.225]
+
+  loss:
+    uncertainty_init_log_sigma: -0.5
+    focal_alpha: 2.0
+    focal_gamma: 4.0
+    ssim_weight: 0.85
+    smooth_weight: 1.0e-3
+
+logging:
+  log_dir: runs/
+  save_dir: checkpoints/
+  save_every: 5                  # epochs
+  log_every: 50                  # steps
+  tensorboard: true
+  wandb: false
