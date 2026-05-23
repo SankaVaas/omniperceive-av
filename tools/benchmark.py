@@ -1,3 +1,33 @@
+"""
+Latency & Throughput Benchmark — OmniPerceive
+===============================================
+Measures inference speed across three runtimes:
+  1. PyTorch  (FP32 and FP16/AMP)
+  2. ONNX Runtime (CPU and CUDA EP)
+  3. TensorRT (if trt_path provided)
+
+Usage:
+    # PyTorch benchmark
+    python tools/benchmark.py \
+        --config configs/kitti_multitask.yaml \
+        --checkpoint checkpoints/kitti/best.pth
+
+    # ONNX Runtime benchmark
+    python tools/benchmark.py \
+        --onnx weights/omniperceive_kitti.onnx \
+        --input_h 384 --input_w 1280
+
+Outputs:
+    - Mean / std latency (ms) per forward pass
+    - Throughput (FPS)
+    - GPU memory peak (MB) — CUDA only
+    - Per-head breakdown (optional, --breakdown)
+
+Colab/Kaggle T4 note:
+    CUDA warmup is essential on T4 (first few runs are always slow).
+    This script runs --warmup=20 iterations before timing.
+"""
+
 import argparse
 import time
 import torch
