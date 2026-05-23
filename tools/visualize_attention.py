@@ -64,6 +64,14 @@ def extract_multi_stage_attention(
 
     def make_hook(stage_id):
         def hook_fn(module, inp, output):
+            # Swin WindowAttention returns (x, attn_weights) when attn_out=True
+            # If not, we hook after the softmax inside the module
+            if isinstance(output, tuple) and len(output) == 2:
+                attn = output[1]    # (B * num_windows, num_heads, N, N)
+            elif hasattr(module, "_attn_weights"):
+                attn = module._attn_weights
+            else:
+                return
             # Average over batch*windows dimension, keep heads
             attn_maps[stage_id] = attn.detach().mean(dim=0)  # (num_heads, N, N)
         return hook_fn
