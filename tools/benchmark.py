@@ -198,3 +198,14 @@ def _print_results(latencies, batch_size, mem_peak_mb, tag, logger):
         logger.info(f"  GPU memory   : {mem_peak_mb:.1f} MB")
     logger.info(f"{'='*50}\n")
 
+
+if __name__ == "__main__":
+    args   = parse_args()
+    logger = get_logger("benchmark", "runs/")
+
+    if args.onnx:
+        benchmark_onnx(args, logger)
+    elif args.config and args.checkpoint:
+        benchmark_pytorch(args, logger)
+    else:
+        logger.error("Provide --onnx OR (--config + --checkpoint)")
