@@ -69,6 +69,7 @@ def export(args):
         outputs = wrapper(dummy)
     output_names = [
         "det_heatmap", "det_offset", "det_wh",
+        "lane_coeffs", "lane_conf",
         "depth_map", "seg_logits",
     ]
     logger.info("PyTorch output shapes:")
