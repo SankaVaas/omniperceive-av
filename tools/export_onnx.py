@@ -130,3 +130,7 @@ def export(args):
             logger.warning("onnxruntime not installed — skipping verification.")
             logger.warning("Install: pip install onnxruntime-gpu")
  
+
+if __name__ == "__main__":
+    export(parse_args())
+ 
