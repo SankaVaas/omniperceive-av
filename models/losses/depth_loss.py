@@ -69,7 +69,10 @@ class SelfSupervisedDepthLoss(nn.Module):
     def photometric_loss(
         self, pred_img: torch.Tensor, target_img: torch.Tensor
     ) -> torch.Tensor:
-        """Per-pixel photometric reconstruction error."""
+        """Per-pixel photometric reconstruction error. Resizes target if needed."""
+        if target_img.shape[2:] != pred_img.shape[2:]:
+            target_img = F.interpolate(target_img, size=pred_img.shape[2:],
+                                       mode="bilinear", align_corners=False)
         l1   = (pred_img - target_img).abs().mean(dim=1, keepdim=True)
         ssim = self.ssim(pred_img, target_img).mean(dim=1, keepdim=True)
         return self.ssim_weight * ssim + (1.0 - self.ssim_weight) * l1
@@ -79,8 +82,13 @@ class SelfSupervisedDepthLoss(nn.Module):
     ) -> torch.Tensor:
         """
         Encourages depth to be smooth while preserving edges guided by RGB.
-        Normalise depth to [0,1] to decouple scale from smoothness magnitude.
+        Normalise depth to decouple scale from smoothness magnitude.
+        Image is resized to match depth resolution if needed.
         """
+        # Resize image to depth spatial size (depth is at P2 resolution, image may be full-res)
+        if image.shape[2:] != depth.shape[2:]:
+            image = F.interpolate(image, size=depth.shape[2:], mode="bilinear", align_corners=False)
+
         mean_depth = depth.mean(dim=(2, 3), keepdim=True)
         norm_depth = depth / (mean_depth + 1e-7)
 
@@ -106,6 +114,14 @@ class SelfSupervisedDepthLoss(nn.Module):
         target_img  = targets["target_img"]
         warped_imgs = preds.get("warped_imgs", [])
 
+        # Align target_img to depth/warped resolution once (avoids repeated resizing)
+        if warped_imgs and target_img.shape[2:] != warped_imgs[0].shape[2:]:
+            target_img = F.interpolate(target_img, size=warped_imgs[0].shape[2:],
+                                       mode="bilinear", align_corners=False)
+        elif not warped_imgs and target_img.shape[2:] != depth.shape[2:]:
+            target_img = F.interpolate(target_img, size=depth.shape[2:],
+                                       mode="bilinear", align_corners=False)
+
         if not warped_imgs:
             # No warped images yet (e.g. first iteration): fall back to smoothness only
             return self.smooth_weight * self.edge_aware_smoothness(depth, target_img)
@@ -115,11 +131,14 @@ class SelfSupervisedDepthLoss(nn.Module):
         photo_stack  = torch.cat(photo_losses, dim=1)   # (B, num_src, H, W)
 
         if self.auto_mask:
-            # Identity warp baseline: penalise only where model beats identity
-            identity_losses = [
-                self.photometric_loss(src, target_img)
-                for src in targets.get("source_imgs", warped_imgs)
-            ]
+            # Identity warp baseline — resize source to match warped resolution
+            src_imgs = targets.get("source_imgs", warped_imgs)
+            identity_losses = []
+            for src in src_imgs:
+                if src.shape[2:] != target_img.shape[2:]:
+                    src = F.interpolate(src, size=target_img.shape[2:],
+                                        mode="bilinear", align_corners=False)
+                identity_losses.append(self.photometric_loss(src, target_img))
             identity_stack = torch.cat(identity_losses, dim=1) + 1e-5
             photo_stack = torch.cat([photo_stack, identity_stack], dim=1)
 
