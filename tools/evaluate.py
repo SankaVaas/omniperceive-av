@@ -211,3 +211,7 @@ def evaluate(args):
 
     return results
 
+
+if __name__ == "__main__":
+    args = parse_args()
+    evaluate(args)
