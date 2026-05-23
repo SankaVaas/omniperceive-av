@@ -27,29 +27,54 @@ class ConvBnRelu(nn.Sequential):
 
 
 class DepthDecoder(nn.Module):
-    """Progressive upsampling decoder with lateral skip connections from FPN."""
+    """
+    Progressive upsampling decoder with lateral skip connections from FPN.
+
+    At each stage i:
+      1. upconv  : projects the current feature from its channel count → dec_ch[i]
+      2. cat     : concatenate with skip from enc_ch[i+1] (next finer FPN level)
+      3. iconv   : fuse concatenated features → dec_ch[i]
+
+    encoder_channels: [P5_ch, P4_ch, P3_ch, P2_ch] (coarse → fine, same as FPN out_ch)
+    decoder_channels: [dec0,  dec1,  dec2,  dec3 ]
+    """
 
     def __init__(self, encoder_channels: List[int], decoder_channels: List[int]):
         super().__init__()
         assert len(encoder_channels) == len(decoder_channels)
+        N = len(encoder_channels)
+
         self.upconvs = nn.ModuleList()
         self.iconvs  = nn.ModuleList()
 
-        for i, (enc_ch, dec_ch) in enumerate(zip(encoder_channels, decoder_channels)):
-            # Upsample + merge with skip
-            self.upconvs.append(ConvBnRelu(enc_ch, dec_ch, k=3, p=1))
-            in_ch = dec_ch + (encoder_channels[i - 1] if i > 0 else 0)
-            self.iconvs.append(ConvBnRelu(in_ch if i > 0 else dec_ch, dec_ch))
+        for i in range(N):
+            # Input to upconv:
+            #   stage 0 → encoder_channels[0] (P5)
+            #   stage i → decoder_channels[i-1] (previous decoder output)
+            in_ch_up = encoder_channels[0] if i == 0 else decoder_channels[i - 1]
+            self.upconvs.append(ConvBnRelu(in_ch_up, decoder_channels[i]))
+
+            # Input to iconv: dec_ch[i] (from upconv) + enc_ch[i+1] (skip, if exists)
+            skip_ch  = encoder_channels[i + 1] if i + 1 < N else 0
+            self.iconvs.append(ConvBnRelu(decoder_channels[i] + skip_ch, decoder_channels[i]))
 
     def forward(self, features: List[torch.Tensor]) -> List[torch.Tensor]:
-        """features: [P5, P4, P3, P2] — coarse to fine."""
-        x = features[0]
+        """
+        Args:
+            features: [P5, P4, P3, P2] — coarse to fine (reversed FPN list).
+        Returns:
+            outputs : list of decoder feature maps, coarse → fine.
+        """
+        x = features[0]   # P5 — coarsest
         outputs = []
         for i, (upconv, iconv) in enumerate(zip(self.upconvs, self.iconvs)):
             x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
             x = upconv(x)
             if i + 1 < len(features):
                 skip = features[i + 1]
+                # Align spatial size (in case of rounding mismatches)
+                if x.shape[2:] != skip.shape[2:]:
+                    x = F.interpolate(x, size=skip.shape[2:], mode="bilinear", align_corners=False)
                 x = torch.cat([x, skip], dim=1)
             x = iconv(x)
             outputs.append(x)
@@ -78,8 +103,10 @@ class DepthHead(nn.Module):
 
     def __init__(self, cfg: dict, in_channels: int):
         super().__init__()
-        enc_chs = cfg.get("encoder_channels", [256, 128, 64, 32])
         dec_chs = cfg.get("decoder_channels", [128, 64, 32, 16])
+        num_levels = len(dec_chs)
+        # FPN normalises all levels to the same channel count (in_channels)
+        enc_chs = [in_channels] * num_levels
 
         self.decoder = DepthDecoder(enc_chs, dec_chs)
 
