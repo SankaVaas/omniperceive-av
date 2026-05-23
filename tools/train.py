@@ -104,3 +104,79 @@ def train_one_epoch(
             t0 = time.time()
 
     return total_loss / len(loader)
+
+
+def main():
+    args = parse_args()
+    is_ddp = setup_ddp(args.local_rank)
+    is_main = (not is_ddp) or (dist.get_rank() == 0)
+
+    with open(args.config) as f:
+        cfg = yaml.safe_load(f)
+
+    device = torch.device(f"cuda:{args.local_rank}" if torch.cuda.is_available() else "cpu")
+    logger = get_logger("omniperceive", cfg["logging"]["log_dir"])
+
+    # ── Model ─────────────────────────────────────────────────────────────
+    model = OmniPerceive(cfg["model"]).to(device)
+    if is_ddp:
+        model = DDP(model, device_ids=[args.local_rank], find_unused_parameters=False)
+
+    # ── Data ──────────────────────────────────────────────────────────────
+    train_loader, val_loader = build_dataloader(cfg, is_ddp)
+
+    # ── Optimiser + Scheduler ─────────────────────────────────────────────
+    opt_cfg = cfg["training"]["optimizer"]
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=opt_cfg["lr"],
+        weight_decay=opt_cfg["weight_decay"],
+        betas=opt_cfg["betas"],
+    )
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=opt_cfg["lr"],
+        steps_per_epoch=len(train_loader),
+        epochs=cfg["training"]["epochs"],
+        pct_start=cfg["training"]["scheduler"]["pct_start"],
+    )
+    scaler = GradScaler()
+
+    start_epoch = 0
+    if args.resume:
+        start_epoch = load_checkpoint(args.resume, model, optimizer, scheduler, logger)
+
+    writer = SummaryWriter(log_dir=cfg["logging"]["log_dir"]) if is_main else None
+
+    # ── Training Loop ─────────────────────────────────────────────────────
+    best_loss = float("inf")
+    for epoch in range(start_epoch, cfg["training"]["epochs"]):
+        if is_ddp:
+            train_loader.sampler.set_epoch(epoch)
+
+        avg_loss = train_one_epoch(
+            model, train_loader, optimizer, scaler, scheduler,
+            epoch, cfg, writer, logger, device, is_main
+        )
+
+        if is_main:
+            logger.info(f"Epoch {epoch} | Avg Loss: {avg_loss:.4f}")
+
+            if epoch % cfg["logging"]["save_every"] == 0 or avg_loss < best_loss:
+                is_best = avg_loss < best_loss
+                best_loss = min(avg_loss, best_loss)
+                save_checkpoint(
+                    {
+                        "epoch": epoch + 1,
+                        "state_dict": model.module.state_dict() if is_ddp else model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "scheduler": scheduler.state_dict(),
+                        "best_loss": best_loss,
+                    },
+                    save_dir=cfg["logging"]["save_dir"],
+                    is_best=is_best,
+                )
+
+    if writer:
+        writer.close()
+
