@@ -1,3 +1,36 @@
+"""
+Attention Map Visualiser — OmniPerceive
+=========================================
+Extracts per-task self-attention from the Swin-T backbone and
+produces publication-quality visualisation panels.
+
+This is the showstopper feature of the repo: it demonstrates that
+the shared encoder learns genuinely different representations per task.
+
+Usage:
+    python tools/visualize_attention.py \
+        --config     configs/kitti_multitask.yaml \
+        --checkpoint checkpoints/kitti/best.pth \
+        --image      data/kitti/training/image_2/000042.png \
+        [--output    results/attention/] \
+        [--heads     0 1 2 3]    # which attention heads to visualise
+
+What it does:
+    1. Loads a single image and runs a forward pass with attention hooks.
+    2. Extracts attention weights from:
+         - Last Swin block of each stage (stages 1, 2, 3)
+         - Averaged over all attention heads (default) or per-head
+    3. Saves:
+         - attention_stage{N}_head{M}.png  — raw attention per stage
+         - attention_panel.png              — grid: RGB | stage1 | stage2 | stage3
+         - attention_overlay.png            — best attention overlaid on image
+
+The multi-stage outputs visualise the hierarchical feature learning:
+    Stage 1 → local texture / edges
+    Stage 2 → semantic parts (wheels, lane markings)
+    Stage 3 → global structure (vehicles, road layout)
+"""
+
 import argparse
 import sys
 from pathlib import Path
@@ -264,3 +297,6 @@ def main():
     logger.info("Done ✅")
     logger.info(f"All outputs in: {out_dir}")
 
+
+if __name__ == "__main__":
+    main()
